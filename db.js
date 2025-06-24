@@ -12,4 +12,13 @@ db.serialize(() => {
   )`);
 });
 
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS bingo (
+    user_id INTEGER PRIMARY KEY,
+    grid TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  )
+`).run();
+
+
 module.exports = db;

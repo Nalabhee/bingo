@@ -1,0 +1,33 @@
+body {
+  font-family: Arial, sans-serif;
+  background-color: #121212;
+  color: #f0f0f0;
+  text-align: center;
+  padding: 20px;
+}
+
+#grid {
+  display: grid;
+  grid-template-columns: repeat(5, 60px);
+  gap: 5px;
+  margin: 20px auto;
+  width: fit-content;
+}
+
+.cell {
+  width: 60px;
+  height: 60px;
+  background-color: #444;
+  border: 1px solid #888;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  transition: background-color 0.2s;
+}
+
+.cell.checked {
+  background-color: #4caf50;
+  color: white;
+}

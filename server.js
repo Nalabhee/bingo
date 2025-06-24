@@ -13,6 +13,11 @@ const db = new Database('./users.db');
 // Middleware pour parser les données POST des formulaires
 app.use(express.urlencoded({ extended: true }));
 
+function ensureAuthenticated(req, res, next) {
+  if (req.isAuthenticated()) return next();
+  res.status(401).json({ error: 'Non autorisé' });
+}
+
 // Sessions
 app.use(session({
   secret: process.env.SESSION_SECRET || 'un_secret_pour_la_session',
@@ -155,6 +160,45 @@ app.get('/auth/twitch/callback',
   (req, res) => {
     res.redirect('/');
   });
+
+const authMiddleware = (req, res, next) => {
+  if (req.isAuthenticated()) {
+    next();
+  } else {
+    res.redirect('/login.html');
+  }
+};
+
+// Pour afficher la grille
+app.get('/bingo', authMiddleware, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'bingo.html'));
+});
+
+// Pour charger la grille sauvegardée
+app.get('/api/bingo', authMiddleware, (req, res) => {
+  const userId = req.user.id;
+  const stmt = db.prepare('SELECT grid FROM bingo WHERE user_id = ?');
+  const row = stmt.get(userId);
+  if (row) {
+    res.json({ grid: JSON.parse(row.grid) });
+  } else {
+    res.json({ grid: Array(25).fill(false) }); // grille vide par défaut
+  }
+});
+
+// Pour sauvegarder la grille
+app.post('/api/bingo', authMiddleware, express.json(), (req, res) => {
+  const userId = req.user.id;
+  const grid = JSON.stringify(req.body.grid);
+
+  const stmt = db.prepare(`
+    INSERT INTO bingo (user_id, grid) VALUES (?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET grid = excluded.grid
+  `);
+
+  stmt.run(userId, grid);
+  res.json({ success: true });
+});
 
 // Lancement serveur
 const PORT = process.env.PORT || 3000;
