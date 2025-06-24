@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const passport = require('passport');
-const TwitchStrategy = require('passport-twitch').Strategy;
+const TwitchStrategy = require('passport-twitch-new').Strategy;
 
 const app = express();
 
