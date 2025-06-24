@@ -1,0 +1,12 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Admin</title></head><body>
+<h1>Interface Admin</h1>
+<table border="1">
+<tr><th>Nom</th><th>Semaine</th><th>Carte</th></tr>
+<% cards.forEach(c=>{ %>
+<tr>
+<td><%= c.display_name %></td>
+<td><%= c.week %></td>
+<td><%= c.data %></td>
+</tr><% }) %>
+</table>
+</body></html>
