@@ -20,5 +20,9 @@ db.prepare(`
   )
 `).run();
 
+// À exécuter une fois pour corriger la table si ce n’est pas déjà fait
+db.prepare(`ALTER TABLE users ADD COLUMN twitchId TEXT`).run();
+
+
 
 module.exports = db;
