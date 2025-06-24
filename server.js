@@ -8,7 +8,8 @@ const path = require('path');
 const Database = require('better-sqlite3');
 
 const app = express();
-const db = new Database('./users.db');
+const db = require('./db');
+
 
 // Middleware pour parser les données POST des formulaires
 app.use(express.urlencoded({ extended: true }));
