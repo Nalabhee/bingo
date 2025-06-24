@@ -3,12 +3,12 @@ const express = require('express');
 const session = require('express-session');
 const passport = require('passport');
 const TwitchStrategy = require('passport-twitch-new').Strategy;
-const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcrypt');
 const path = require('path');
+const Database = require('better-sqlite3');
 
 const app = express();
-const db = new sqlite3.Database('./users.db');
+const db = new Database('./users.db');
 
 // Middleware pour parser les données POST des formulaires
 app.use(express.urlencoded({ extended: true }));
@@ -24,28 +24,33 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Création de la table users si elle n'existe pas
-db.run(`CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  username TEXT UNIQUE,
-  email TEXT UNIQUE,
-  password TEXT,
-  twitchId TEXT UNIQUE
-)`);
+// Création table users si elle n'existe pas
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE,
+    email TEXT UNIQUE,
+    password TEXT,
+    twitchId TEXT UNIQUE
+  )
+`).run();
 
-// Passport Local Strategy pour connexion classique
+// Passport Local Strategy
 const LocalStrategy = require('passport-local').Strategy;
 passport.use(new LocalStrategy(
   function(username, password, done) {
-    db.get("SELECT * FROM users WHERE username = ? OR email = ?", [username, username], (err, user) => {
-      if (err) return done(err);
+    try {
+      const user = db.prepare("SELECT * FROM users WHERE username = ? OR email = ?").get(username, username);
       if (!user) return done(null, false, { message: 'Utilisateur non trouvé' });
 
       bcrypt.compare(password, user.password, (err, res) => {
+        if (err) return done(err);
         if (res) return done(null, user);
         else return done(null, false, { message: 'Mot de passe incorrect' });
       });
-    });
+    } catch (err) {
+      return done(err);
+    }
   }
 ));
 
@@ -57,29 +62,21 @@ passport.use(new TwitchStrategy({
   scope: "user:read:email"
 },
 (accessToken, refreshToken, profile, done) => {
-  // Chercher utilisateur avec ce twitchId
-  db.get("SELECT * FROM users WHERE twitchId = ?", [profile.id], (err, user) => {
-    if (err) return done(err);
+  try {
+    let user = db.prepare("SELECT * FROM users WHERE twitchId = ?").get(profile.id);
 
     if (user) {
-      // Si utilisateur existe, on le connecte
       return done(null, user);
     } else {
-      // Sinon, on crée un utilisateur avec twitchId et login Twitch comme username
-      db.run(
-        "INSERT INTO users (username, twitchId) VALUES (?, ?)",
-        [profile.login, profile.id],
-        function(err) {
-          if (err) return done(err);
-          // Récupérer le nouvel utilisateur
-          db.get("SELECT * FROM users WHERE id = ?", [this.lastID], (err, newUser) => {
-            if (err) return done(err);
-            return done(null, newUser);
-          });
-        }
-      );
+      const insert = db.prepare("INSERT INTO users (username, twitchId) VALUES (?, ?)");
+      const info = insert.run(profile.login, profile.id);
+
+      user = db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid);
+      return done(null, user);
     }
-  });
+  } catch (err) {
+    return done(err);
+  }
 }));
 
 // Sérialisation / Désérialisation
@@ -87,15 +84,18 @@ passport.serializeUser((user, done) => {
   done(null, user.id);
 });
 passport.deserializeUser((id, done) => {
-  db.get("SELECT * FROM users WHERE id = ?", [id], (err, user) => {
-    done(err, user);
-  });
+  try {
+    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(id);
+    done(null, user);
+  } catch (err) {
+    done(err);
+  }
 });
 
-// Servir les fichiers statiques (index.html, login.html, register.html)
+// Servir fichiers statiques (index.html, login.html, register.html)
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Routes pour servir les pages de login et register
+// Routes pour afficher login et register
 app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
@@ -109,20 +109,19 @@ app.post('/register', async (req, res) => {
   if (!username || !email || !password) {
     return res.send("Merci de remplir tous les champs");
   }
-  const hashedPassword = await bcrypt.hash(password, 10);
 
-  db.run("INSERT INTO users (username, email, password) VALUES (?, ?, ?)",
-    [username, email, hashedPassword],
-    function(err) {
-      if (err) {
-        if (err.message.includes('UNIQUE')) {
-          return res.send("Identifiant ou email déjà utilisé");
-        }
-        return res.send("Erreur serveur");
-      }
-      res.redirect('/login');
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const insert = db.prepare("INSERT INTO users (username, email, password) VALUES (?, ?, ?)");
+    insert.run(username, email, hashedPassword);
+    res.redirect('/login');
+  } catch (err) {
+    if (err.message.includes('UNIQUE')) {
+      res.send("Identifiant ou email déjà utilisé");
+    } else {
+      res.send("Erreur serveur");
     }
-  );
+  }
 });
 
 // POST connexion classique
@@ -131,14 +130,14 @@ app.post('/login', passport.authenticate('local', {
   failureRedirect: '/login?error=1'
 }));
 
-// Route déconnexion
+// Déconnexion
 app.get('/logout', (req, res) => {
   req.logout(() => {
     res.redirect('/');
   });
 });
 
-// Route d'accueil (exemple)
+// Page d'accueil simple
 app.get('/', (req, res) => {
   if (req.isAuthenticated()) {
     res.send(`<h1>Bienvenue ${req.user.username} !</h1><a href="/logout">Déconnexion</a>`);
@@ -147,18 +146,17 @@ app.get('/', (req, res) => {
   }
 });
 
-// Routes Twitch
+// Auth Twitch routes
 app.get('/auth/twitch',
   passport.authenticate('twitch'));
 
 app.get('/auth/twitch/callback',
   passport.authenticate('twitch', { failureRedirect: '/login' }),
   (req, res) => {
-    // Connexion réussie, redirection accueil
     res.redirect('/');
   });
 
-// Démarrer serveur
+// Lancement serveur
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Serveur démarré sur le port ${PORT}`);
